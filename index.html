@@ -1122,15 +1122,17 @@
             const stored = localStorage.getItem('flowtide_dark_mode');
             const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
             const isDark = stored !== null ? stored === 'true' : prefersDark;
-            if (isDark) document.body.classList.add('dark');
+            setDarkMode(isDark);
+        }
+
+        function setDarkMode(isDark) {
+            document.body.classList.toggle('dark', !!isDark);
+            localStorage.setItem('flowtide_dark_mode', String(!!isDark));
             updateDarkToggleLabel();
         }
 
         function toggleDarkMode() {
-            document.body.classList.toggle('dark');
-            const isDark = document.body.classList.contains('dark');
-            localStorage.setItem('flowtide_dark_mode', String(isDark));
-            updateDarkToggleLabel();
+            setDarkMode(!document.body.classList.contains('dark'));
         }
 
         function updateDarkToggleLabel() {
@@ -1159,13 +1161,21 @@
 
         function updatePendingStats() { /* no-op */ }
 
+        function buildExportPayload() {
+            return {
+                tasks: tasks,
+                darkMode: document.body.classList.contains('dark'),
+                zoom: parseFloat(localStorage.getItem('task_zoom_v1')) || 1
+            };
+        }
+
         function updateModalJsonPreview() {
             const textarea = document.getElementById('modalJsonTextarea');
-            if (textarea) textarea.value = JSON.stringify(tasks, null, 2);
+            if (textarea) textarea.value = JSON.stringify(buildExportPayload(), null, 2);
         }
 
         function copyJsonToClipboard() {
-            const jsonStr = JSON.stringify(tasks, null, 2);
+            const jsonStr = JSON.stringify(buildExportPayload(), null, 2);
             navigator.clipboard.writeText(jsonStr)
                 .then(() => showToast('✅ Configuration copied to clipboard!'))
                 .catch(() => showToast('❌ Failed to copy'));
@@ -1182,11 +1192,21 @@
 
         function processJsonDataPayload(rawText) {
             const parsed = JSON.parse(rawText);
-            if (!Array.isArray(parsed)) throw new Error('Data must be an array');
-            const valid = parsed.every(item => item && typeof item === 'object' && item.hasOwnProperty('id') && item.hasOwnProperty(
-                'text'));
+            let taskArray, darkMode, zoom;
+            if (Array.isArray(parsed)) {
+                // Legacy format: plain array of tasks, no theme/zoom info
+                taskArray = parsed;
+            } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.tasks)) {
+                taskArray = parsed.tasks;
+                darkMode = parsed.darkMode;
+                zoom = parsed.zoom;
+            } else {
+                throw new Error('Data must be an array of tasks, or an object with a "tasks" array');
+            }
+            const valid = taskArray.every(item => item && typeof item === 'object' && item.hasOwnProperty('id') && item
+                .hasOwnProperty('text'));
             if (!valid) throw new Error('Invalid structure: each task needs id and text');
-            const sanitized = parsed.map(t => ({
+            const sanitized = taskArray.map(t => ({
                 id: t.id,
                 text: String(t.text),
                 priority: (t.priority === 'High' || t.priority === 'Med' || t.priority === 'Low') ? t.priority : 'Med',
@@ -1197,6 +1217,8 @@
                 hidden: t.hidden === true
             }));
             tasks = sanitized;
+            if (typeof darkMode === 'boolean') setDarkMode(darkMode);
+            if (typeof zoom === 'number' && !isNaN(zoom)) setZoomValue(zoom);
             saveAndRender();
             selectedTaskId = null;
             showToast(`🎉 Restored ${tasks.length} database entries`);
@@ -1204,7 +1226,8 @@
 
         function exportTasksData() {
             try {
-                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(tasks, null, 2));
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(buildExportPayload(),
+                    null, 2));
                 const downloadAnchor = document.createElement('a');
                 downloadAnchor.setAttribute("href", dataStr);
                 downloadAnchor.setAttribute("download", "flowtide_tasks_backup.json");
@@ -1600,19 +1623,23 @@
 
         function bindZoomSlider() {
             const slider = document.getElementById('zoomSlider');
-            const label = document.getElementById('zoomLabel');
             if (!slider) return;
             const saved = parseFloat(localStorage.getItem('task_zoom_v1'));
             const initial = !isNaN(saved) ? saved : 1;
-            slider.value = initial;
-            applyZoom(initial);
-            if (label) label.textContent = Math.round(initial * 100) + '%';
+            setZoomValue(initial);
             slider.addEventListener('input', () => {
-                const val = parseFloat(slider.value);
-                applyZoom(val);
-                if (label) label.textContent = Math.round(val * 100) + '%';
-                localStorage.setItem('task_zoom_v1', val);
+                setZoomValue(parseFloat(slider.value));
             });
+        }
+
+        function setZoomValue(val) {
+            if (isNaN(val)) return;
+            const slider = document.getElementById('zoomSlider');
+            const label = document.getElementById('zoomLabel');
+            if (slider) slider.value = val;
+            if (label) label.textContent = Math.round(val * 100) + '%';
+            applyZoom(val);
+            localStorage.setItem('task_zoom_v1', val);
         }
 
         function applyZoom(val) {
