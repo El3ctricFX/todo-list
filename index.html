@@ -1407,7 +1407,18 @@
             document.querySelectorAll('.task-card-new').forEach(card => {
                 card.removeEventListener('click', handleCardClick);
                 card.addEventListener('click', handleCardClick);
+                card.removeEventListener('contextmenu', handleCardContextMenu);
+                card.addEventListener('contextmenu', handleCardContextMenu);
             });
+        }
+
+        function handleCardContextMenu(e) {
+            e.preventDefault();
+            const card = e.currentTarget;
+            const taskId = parseInt(card.dataset.id);
+            selectedTaskId = taskId;
+            cardMenuOpen = true;
+            render();
         }
 
         function handleCardClick(e) {
